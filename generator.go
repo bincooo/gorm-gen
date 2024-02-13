@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"gorm.io/gorm/logger"
 	"io"
 	"io/ioutil"
 	"log"
@@ -33,6 +34,12 @@ type T interface{}
 
 // M map[string]interface{}
 type M map[string]interface{}
+
+type Extension func(
+	g *Generator,
+	render func(tmpl string, wr io.Writer, data interface{}) error,
+	output func(fileName string, content []byte) error,
+) error
 
 // SQLResult sql.result
 type SQLResult sql.Result
@@ -89,8 +96,9 @@ func (i *genInfo) methodInGenInfo(m *generate.InterfaceMethod) bool {
 type Generator struct {
 	Config
 
-	Data   map[string]*genInfo                  //gen query data
-	models map[string]*generate.QueryStructMeta //gen model data
+	Data       map[string]*genInfo                  //gen query data
+	models     map[string]*generate.QueryStructMeta //gen model data
+	extensions []Extension                          //gen more with Extension ...
 }
 
 // UseDB set db connection
@@ -98,6 +106,19 @@ func (g *Generator) UseDB(db *gorm.DB) {
 	if db != nil {
 		g.db = db
 	}
+}
+
+// Logger get db logger
+func (g *Generator) Logger() logger.Interface {
+	return g.db.Logger
+}
+
+// AddExtension append Extension
+func (g *Generator) AddExtension(extension Extension) {
+	if g.extensions == nil {
+		g.extensions = make([]Extension, 0)
+	}
+	g.extensions = append(g.extensions, extension)
 }
 
 /*
@@ -272,6 +293,11 @@ func (g *Generator) Execute() {
 		panic("generate query code fail")
 	}
 
+	if err := g.generateWithExtension(); err != nil {
+		g.db.Logger.Error(context.Background(), "generate extension code fail: %s", err)
+		panic("generate extension code fail")
+	}
+
 	g.info("Generate code done.")
 }
 
@@ -374,6 +400,38 @@ func (g *Generator) generateQueryFile() (err error) {
 			return nil
 		}
 		g.info("generate unit test file: " + fileName)
+	}
+
+	return nil
+}
+
+// generateWithPlugin generate template code and save to file
+func (g *Generator) generateWithExtension() (err error) {
+	if len(g.Data) == 0 {
+		return nil
+	}
+
+	if len(g.extensions) == 0 {
+		return nil
+	}
+
+	errChan := make(chan error)
+	pool := pools.NewPool(concurrent)
+	// generate extension code for all struct
+	for _, extension := range g.extensions {
+		pool.Wait()
+		go func(recall Extension) {
+			defer pool.Done()
+			err = recall(g, render, g.output)
+			if err != nil {
+				errChan <- err
+			}
+		}(extension)
+	}
+	select {
+	case err = <-errChan:
+		return err
+	case <-pool.AsyncWaitAll():
 	}
 
 	return nil
