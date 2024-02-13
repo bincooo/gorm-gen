@@ -644,13 +644,14 @@ func render(tmpl string, wr io.Writer, data interface{}) error {
 	return renderWith(tmpl, wr, data, nil)
 }
 
-func renderWith(tmpl string, w io.Writer, data interface{}, funcM template.FuncMap) error {
-	t, err := template.New(tmpl).Parse(tmpl)
-	if err != nil {
-		return err
-	}
+func renderWith(tmpl string, w io.Writer, data interface{}, funcM template.FuncMap) (err error) {
+	t := template.New("t")
 	if funcM != nil {
 		t.Funcs(funcM)
+	}
+	t, err = t.Parse(tmpl)
+	if err != nil {
+		return
 	}
 	return t.Execute(w, data)
 }
