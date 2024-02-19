@@ -113,8 +113,8 @@ func (g *Generator) Logger() logger.Interface {
 	return g.db.Logger
 }
 
-// AddExtension append Extension
-func (g *Generator) AddExtension(extension Extension) {
+// ApplyExtension append Extension
+func (g *Generator) ApplyExtension(extension Extension) {
 	if g.extensions == nil {
 		g.extensions = make([]Extension, 0)
 	}
